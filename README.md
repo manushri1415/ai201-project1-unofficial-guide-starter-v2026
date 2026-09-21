@@ -1,19 +1,6 @@
 # The Unofficial Guide
 
-<!-- Replace this line with your name and which corpus you picked. -->
-
-> **This file is your submission.** Fill it in as you go — most sections get
-> written during the milestone that produces them, not at the end.
->
-> How the starter works, and every command you'll need, is in `RUNNING.md`.
-> Leave that file alone.
->
-> **Paste everything as text.** No screenshots, no video. A typed table gets
-> full credit; a picture of the same table gets none.
->
-> Delete these instruction blocks as you replace them. The `<!-- -->` comments
-> are notes to you and don't show up when the page renders — you can leave them
-> or remove them.
+Manushri - corpus: `campus_life`
 
 ---
 
@@ -21,129 +8,115 @@
 
 ## What This Does
 
-<!-- Three or four sentences. Which corpus you picked, and the kinds of
-     questions your system answers. Write it for someone who has never seen
-     this repo.
-
-     Milestone 5. -->
+This project builds a retrieval-augmented question-answering guide for the `campus_life` corpus. The corpus contains 88 short student-life posts about university dining, housing, courses, transportation, studying, money, health, and administrative rules. Users can ask specific factual questions such as when housing lottery numbers come out, how often the shuttle runs, or which study rooms have usable whiteboards. The system retrieves relevant chunks from Chroma, applies a relevance gate before generation, and asks the model to answer only from the retrieved documents while naming source filenames.
 
 ## Chunking Strategy
 
-**Chunk size:**
-**Overlap:**
+**Chunk size:** 700 characters target maximum
+**Overlap:** 0 characters
 
-<!-- What about YOUR documents made you pick these numbers? Short posts and
-     long sectioned guides don't want the same chunking, and "800 seemed
-     reasonable" earns nothing. Point at something you noticed when you read
-     the documents in Milestone 1.
+The selected corpus is made of short posts rather than long guides: `corpora/README.md` describes `campus_life` as 88 documents averaging about 317 characters, and the measured corpus ranged from 178 to 549 characters per document. Useful information usually sits in one sentence or paragraph, but the title gives important context, so keeping each post whole makes more sense than splitting inside the post. The starter strategy used fixed-size character windows with 120 characters of overlap; for this corpus, that did not usually cut documents, but it still treated chunking as a character-count problem instead of a post-boundary problem.
 
-     If you changed your mind partway through, say so and say why. That's worth
-     more than pretending you got it right first time.
-
-     Milestone 3. -->
+The final chunker is `chunker.py::split_documents`. It keeps short posts whole, packs longer documents by paragraph if needed, and only falls back to sentence-aware splitting for unusually long paragraphs. With the final chunker, `campus_life` has 88 documents and 88 chunks, with an average chunk length of 317 characters, shortest chunk 178, and longest chunk 549.
 
 ## Sample Chunks
 
-<!-- Five chunks, pasted as text. Label each one and name the file it came from
-     AND the function that produced it — the grader checks your code against
-     what you claim here.
+**Chunk 1** - source: `admin_add_drop_deadline.txt#0` - produced by: `chunker.py::split_documents`
 
-     `python app.py chunks -n 5` prints all three for you. Copy them straight
-     across.
+```text
+On the add/drop deadline
 
-     Milestone 3. -->
-
-**Chunk 1** — source: `` — produced by: ``
-
-```
+You can add a course through the end of the second week. Dropping is a longer window — through the end of week six — but a drop after week two shows as a W on your transcript. Nothing anywhere on the registrar's site says this plainly, and students find out from each other.
 ```
 
-**Chunk 2** — source: `` — produced by: ``
+**Chunk 2** - source: `course_biol_160.txt#0` - produced by: `chunker.py::split_documents`
 
-```
-```
+```text
+BIOL 160 Cell Biology
 
-**Chunk 3** — source: `` — produced by: ``
+I lived here my sophomore year. Format is lecture three times a week with a weekly lab. Assessment: four unit tests and a cumulative final. Not curved.
 
-```
-```
+Expect 9 to 11 hours a week, the heaviest first-year course by reputation.
 
-**Chunk 4** — source: `` — produced by: ``
-
-```
+The one piece of advice: the unit tests come fast, roughly every three weeks; falling behind once is very hard to recover from.
 ```
 
-**Chunk 5** — source: `` — produced by: ``
+**Chunk 3** - source: `course_hist_118_workload.txt#0` - produced by: `chunker.py::split_documents`
 
+```text
+Workload for HIST 118 Modern World History
+
+People keep asking so: a lot of reading, about 120 pages a week, but no problem sets. That's real time, not optimistic time.
+
+It's front-loaded — the first month is heavier than the rest, partly because you're learning the format.
 ```
+
+**Chunk 4** - source: `dining_pellew_dining_hall_followup.txt#0` - produced by: `chunker.py::split_documents`
+
+```text
+Re: Pellew Dining Hall
+
+Adding to what people have said about Pellew Dining Hall. The wait figure of 12 to 18 minutes at peak matches what I've seen. If you're trying to eat between classes, go before 11:45 and it's a different building entirely.
+
+Also worth saying: the furthest hall from anywhere, next to the athletics centre. Nobody tells you this at orientation.
+```
+
+**Chunk 5** - source: `housing_innisfree_hall.txt#0` - produced by: `chunker.py::split_documents`
+
+```text
+Innisfree Hall — what it's actually like
+
+Transferred in last year, so take this with a grain of salt. Built 1991, renovated 2022. Rooms are doubles arranged as pairs sharing one bathroom between two rooms.
+
+The good: the shared-bathroom-between-two-rooms arrangement is the best compromise on campus.
+
+The bad: no air conditioning, which matters for the first three weeks of September.
+
+Laundry costs $1.75 wash, $1.75 dry, app-based. On noise: moderate; the building is L-shaped and the short wing is much quieter.
 ```
 
 ## Sample Answer
 
-<!-- One complete question and answer, pasted as text, with the source line
-     visible. Milestone 4. -->
-
-**Question:**
+**Question:** When do housing lottery numbers come out?
 
 **Answer:**
 
+```text
+Housing lottery numbers come out the second week of March (admin_housing_lottery.txt).
 ```
-```
 
-**My relevance cutoff:**
+**Source line/document visible:** `Sources retrieved: admin_housing_lottery.txt, admin_parking_permits.txt, admin_withdrawal_deadline.txt, advising_registration.txt, dining_halden_hall_followup.txt`
 
-<!-- The number you set in config.py, and how you got there.
+**My relevance cutoff:** 0.62
 
-     You ran five questions your corpus covers and the five in OUT_OF_SCOPE
-     that it clearly doesn't, and wrote down the best distance for each. What
-     did those two groups look like? Where was the gap? Put the actual numbers
-     here — the table below wants all ten rows.
-
-     Milestone 4. -->
+I chose 0.62 after measuring the five in-corpus questions and the five `OUT_OF_SCOPE` questions. The in-scope best distances ranged from 0.2316 to 0.4251. The out-of-scope best distances ranged from 0.8246 to 0.9340. There was a clean gap between the two groups, so 0.62 sits between the hardest in-scope question and the closest out-of-scope question. What could go wrong: a future valid question worded very differently from the corpus could land above 0.62 and be refused, or a future off-topic question about campus-like language could land below 0.62.
 
 | Question | In corpus? | Best distance |
-|---|---|---|
-|  |  |  |
+|---|---|---:|
+| When do housing lottery numbers come out? | Yes | 0.3453 |
+| What is the best time to do laundry in Calder Annexe? | Yes | 0.2972 |
+| How often does the campus shuttle run on weekdays? | Yes | 0.4251 |
+| How late can a student declare a course pass/fail? | Yes | 0.2316 |
+| Which group study rooms have whiteboards that actually erase? | Yes | 0.3436 |
+| What is the capital of Mongolia? | No | 0.8246 |
+| How do I change the oil in a diesel engine? | No | 0.9340 |
+| Who won the 1994 World Cup? | No | 0.8859 |
+| What is the recommended dosage of ibuprofen for a headache? | No | 0.8442 |
+| How do I write a for loop in Rust? | No | 0.8960 |
 
 ## How I Used AI
 
-<!-- Two specific moments. For each: what you asked for, what came back, and
-     what you changed about it.
+**1.** I asked Codex to inspect the actual repository and corpus before changing code. Codex read the project instructions, starter files, corpus documentation, and multiple `campus_life` documents; it found that my corpus uses short post-style documents and implemented a post-aware chunker that keeps each short source document intact.
 
-     "I asked Claude to write the chunking function from my notes. It ignored
-     the overlap, so I added that myself" is the level of detail we're after.
-     "I used AI to help me code" is not.
-
-     Milestone 5. -->
-
-**1.**
-
-**2.**
-
-<!-- ── Stretch features ─────────────────────────────────────────────────────
-     Doing one? Say so here BEFORE you start. A feature this README never
-     claims earns nothing.
-     ───────────────────────────────────────────────────────────────────────── -->
+**2.** I asked Codex to measure retrieval distances and choose a relevance cutoff from real outputs. Codex ran all five in-scope questions and all five out-of-scope questions, found a clear distance gap, and set the cutoff to 0.62 based on that evidence.
 
 ---
 
 # Unit 2
 
-<!-- These sections get ADDED to what's already above. Don't delete or rewrite
-     unit 1 — the point is that someone can see what you said before you knew
-     how it went. -->
+These sections are for the later unit 2 evaluation work. I have not filled them in yet because the project still needs my own acceptance-criteria decisions in `criteria.md` before the unit 2 run log should be finalized.
 
-## Run Log — Before
-
-<!-- Your five criteria, three runs each. `python run_eval.py --label before`
-     runs the questions, puts the OUT_OF_SCOPE ones through the gate, and
-     writes it all into results/ for you. Targets come from criteria.md; the
-     verdict column is your call.
-
-     Criterion 3 is measured in one deterministic pass rather than three, so
-     the same number goes in all three run columns. That's correct, not lazy.
-
-     Milestone 1. -->
+## Run Log - Before
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
@@ -153,20 +126,7 @@
 | 4. | | | | | |
 | 5. | | | | | |
 
-<!-- Underneath, paste the REAL output for each criterion from one of your
-     runs — the actual text your system produced, not a description of it.
-     Name the file and function that produced it. -->
-
 ## Verdicts
-
-<!-- MET or MISSED for each of the five, against the target you wrote last
-     unit — not a new one. Plus a sentence on how you decided. That sentence
-     matters most where it was close.
-
-     If your target said 4 of 5 and your runs came out 4, 3, 4, that's a MISS.
-     The target has to hold, not show up occasionally.
-
-     Milestone 2. -->
 
 | # | Criterion | Verdict | How I decided |
 |---|---|---|---|
@@ -178,37 +138,13 @@
 
 ## Diagnoses
 
-<!-- For each miss: which stage caused it, and how. The stage alone isn't
-     enough — you need the mechanism.
-
-     Not a diagnosis: "Question 3 didn't work."
-     A diagnosis:     "Question 3 asks about laundry costs. The answer is in
-                       one sentence that got split across two chunks, so
-                       neither chunk on its own contains it."
-
-     The five stages: loading → chunking → embedding → retrieval → generation.
-
-     Look for a pattern. If three misses all ask about numbers, that's one
-     problem, not three.
-
-     Missed nothing? Say so, then say honestly whether your targets were set
-     low, and which one you'd tighten and to what.
-
-     Milestone 3. -->
-
 ## The Improvement
 
 **What I changed:**
 
 **Why I picked it:**
 
-<!-- Connect it to a specific diagnosis above in one sentence. If you can't,
-     you picked a fix because it sounded impressive. -->
-
-### Run Log — After
-
-<!-- Same format, same five criteria, three runs each.
-     `python run_eval.py --label after` -->
+### Run Log - After
 
 | Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
 |---|---|---|---|---|---|
@@ -220,26 +156,6 @@
 
 **Did it help?**
 
-<!-- Say plainly whether it did, and how you know. If it made things worse,
-     say that — a change that backfired, honestly reported, earns full credit
-     and is more interesting than one that worked. What matters is that you can
-     tell.
-
-     Milestone 4. -->
-
 ## What's Still Broken
 
-<!-- For each criterion still missed after your fix: what you'd do about it,
-     and why you stopped where you did.
-
-     "I ran out of time" is fine if it's true. Pretending nothing is left is
-     not.
-
-     Milestone 5. -->
-
 ## What I'd Do Differently
-
-<!-- Knowing what you know now — which of your five criteria would you write
-     differently, and why?
-
-     Milestone 5. -->
