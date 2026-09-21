@@ -22,6 +22,7 @@ to it, write down what you saw, and move on. That's a real observation about
 your pipeline, not giving up.
 """
 
+import re
 from dataclasses import dataclass
 
 import config
@@ -84,20 +85,101 @@ def split_documents(documents: list[Document]) -> list[Chunk]:
     """
     Split documents into chunks. ⚠️ REPLACE THE BODY OF THIS IN MILESTONE 3.
 
-    Right now it just calls the fallback. That is the plain, generic behaviour
-    the brief is talking about.
+    The selected campus_life corpus is made of short student posts. Each file
+    is already one coherent answer, and useful facts usually live in one
+    sentence or paragraph inside that post.
 
-    When you write your own strategy, set `produced_by` to
-    "chunker.py::split_documents" so your README's Sample Chunks section names
-    the right function. `app.py chunks` prints that string for you.
-
-    Things worth thinking about before you write any code:
-      - Are your documents short posts or long guides?
-      - Is the useful information in one sentence, or spread over a paragraph?
-      - Would splitting on paragraph breaks keep more thoughts intact than
-        splitting on a character count?
+    Short posts stay whole. Longer documents are packed by paragraph, with a
+    sentence-aware fallback for unusually long paragraphs.
     """
-    return fallback_split(documents)
+    chunk_size = config.CHUNK_SIZE
+    produced_by = "chunker.py::split_documents"
+
+    chunks: list[Chunk] = []
+    for doc in documents:
+        index = 0
+        for text in _post_or_paragraph_chunks(doc.text, chunk_size):
+            chunks.append(
+                Chunk(
+                    text=text,
+                    source=doc.source,
+                    index=index,
+                    produced_by=produced_by,
+                )
+            )
+            index += 1
+
+    return chunks
+
+
+def _post_or_paragraph_chunks(text: str, chunk_size: int) -> list[str]:
+    """Keep short posts whole; pack longer posts by paragraph."""
+    if len(text) <= chunk_size:
+        return [text]
+
+    paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for paragraph in paragraphs:
+        extra = len(paragraph) + (2 if current else 0)
+        if current and current_len + extra > chunk_size:
+            chunks.append("\n\n".join(current))
+            current = []
+            current_len = 0
+
+        if len(paragraph) > chunk_size:
+            chunks.extend(_sentence_chunks(paragraph, chunk_size))
+            continue
+
+        current.append(paragraph)
+        current_len += extra
+
+    if current:
+        chunks.append("\n\n".join(current))
+
+    return chunks
+
+
+def _sentence_chunks(text: str, chunk_size: int) -> list[str]:
+    """Fallback for an unusually long paragraph without cutting sentences."""
+    sentences = [
+        s.strip()
+        for s in re.split(r"(?<=[.!?])\s+", text)
+        if s.strip()
+    ]
+    chunks: list[str] = []
+    current: list[str] = []
+    current_len = 0
+
+    for sentence in sentences:
+        extra = len(sentence) + (1 if current else 0)
+        if current and current_len + extra > chunk_size:
+            chunks.append(" ".join(current))
+            current = []
+            current_len = 0
+
+        if len(sentence) > chunk_size:
+            chunks.extend(_hard_wrap(sentence, chunk_size))
+            continue
+
+        current.append(sentence)
+        current_len += extra
+
+    if current:
+        chunks.append(" ".join(current))
+
+    return chunks
+
+
+def _hard_wrap(text: str, chunk_size: int) -> list[str]:
+    """Last-resort wrapping for text with no usable natural breaks."""
+    return [
+        text[start : start + chunk_size].strip()
+        for start in range(0, len(text), chunk_size)
+        if text[start : start + chunk_size].strip()
+    ]
 
 
 def describe(chunks: list[Chunk]) -> str:
