@@ -123,8 +123,8 @@ These sections are for the later unit 2 evaluation work. I have not filled them 
 | 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
 | 2. Every answer names a source | 5 of 5 |  |  |  |  |
 | 3. Gate stops out-of-corpus questions | 4 of 5 |  |  |  |  |
-| 4. | | | | | |
-| 5. | | | | | |
+| 4. Chunks do not cut off sentences | 5 of 5 |  |  |  |  |
+| 5. Answers include the expected phrase | 4 of 5 |  |  |  |  |
 
 ## Verdicts
 
@@ -151,8 +151,8 @@ These sections are for the later unit 2 evaluation work. I have not filled them 
 | 1. Retrieved chunk contains the answer | 4 of 5 |  |  |  |  |
 | 2. Every answer names a source | 5 of 5 |  |  |  |  |
 | 3. Gate stops out-of-corpus questions | 4 of 5 |  |  |  |  |
-| 4. | | | | | |
-| 5. | | | | | |
+| 4. Chunks do not cut off sentences | 5 of 5 |  |  |  |  |
+| 5. Answers include the expected phrase | 4 of 5 |  |  |  |  |
 
 **Did it help?**
 
