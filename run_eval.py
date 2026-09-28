@@ -34,6 +34,7 @@ you a scorer; you'd learn nothing from it.
 
 import argparse
 import datetime as dt
+import re
 import sys
 from pathlib import Path
 
@@ -66,6 +67,110 @@ def run_once(question: str, top_k, threshold, corpus, variant):
     # cache=False on purpose. Three runs have to be three real answers.
     answer = answer_from_chunks(question, results, cache=False)
     return answer, results, decision
+
+
+def check_retrieved_contains_answer(expects: str, results) -> bool:
+    """Criterion 1: at least one retrieved chunk contains the expected fact."""
+    if not expects:
+        return False
+    needle = expects.strip().lower()
+    return any(needle in (r.text or "").lower() for r in results)
+
+
+def check_answer_names_source(answer: str, results) -> bool:
+    """Criterion 2: the answer names one of the retrieved source files."""
+    answer = answer or ""
+    return any(r.source in answer for r in results)
+
+
+def clean_chunk_boundary(text: str) -> bool:
+    """Heuristic for criterion 4: chunks should look sentence/heading aligned."""
+    text = (text or "").strip()
+    if not text:
+        return False
+
+    first = text[0]
+    starts_cleanly = (
+        first.isupper()
+        or first.isdigit()
+        or first in "#`\"'"
+    )
+    ends_cleanly = bool(re.search(r'[.!?")\]`]\s*$', text))
+    return starts_cleanly and ends_cleanly
+
+
+def check_chunk_boundaries(corpus: str) -> dict:
+    """Run criterion 4 over every chunk instead of sampling by eye."""
+    from chunker import split_documents
+    from ingest import load_documents
+
+    documents = load_documents(corpus)
+    chunks = split_documents(documents)
+    checked = [
+        {
+            "label": chunk.label,
+            "passed": clean_chunk_boundary(chunk.text),
+            "start": chunk.text.strip()[:40],
+            "end": chunk.text.strip()[-40:],
+        }
+        for chunk in chunks
+    ]
+    passed = sum(item["passed"] for item in checked)
+    return {
+        "passed": passed,
+        "total": len(checked),
+        "failures": [item for item in checked if not item["passed"]],
+    }
+
+
+def summarize_runs(rows, gate_rows, chunk_check) -> list[dict]:
+    """Aggregate question-level measurements into the five criteria."""
+    run_count = len(rows[0]["runs"]) if rows else 0
+
+    retrieved_counts = []
+    source_counts = []
+    expected_counts = []
+    for index in range(run_count):
+        retrieved_counts.append(sum(row["retrieved_runs"][index] is True for row in rows))
+        source_counts.append(sum(row["source_runs"][index] is True for row in rows))
+        expected_counts.append(sum(row["runs"][index] is True for row in rows))
+
+    gate_count = sum(row["refused"] for row in gate_rows)
+    chunk_count = chunk_check["passed"]
+    chunk_total = chunk_check["total"]
+
+    return [
+        {
+            "criterion": "1. Retrieved chunk contains the answer",
+            "target": "4 of 5",
+            "runs": [f"{count}/{len(rows)}" for count in retrieved_counts],
+            "met": all(count >= 4 for count in retrieved_counts),
+        },
+        {
+            "criterion": "2. Every answer names a source",
+            "target": "5 of 5",
+            "runs": [f"{count}/{len(rows)}" for count in source_counts],
+            "met": all(count == len(rows) for count in source_counts),
+        },
+        {
+            "criterion": "3. Gate stops out-of-corpus questions",
+            "target": "4 of 5",
+            "runs": [f"{gate_count}/{len(gate_rows)}"] * run_count,
+            "met": gate_count >= 4,
+        },
+        {
+            "criterion": "4. Chunks do not cut off sentences",
+            "target": "all chunks",
+            "runs": [f"{chunk_count}/{chunk_total}"] * run_count,
+            "met": chunk_count == chunk_total,
+        },
+        {
+            "criterion": "5. Answers include the expected phrase",
+            "target": "4 of 5",
+            "runs": [f"{count}/{len(rows)}" for count in expected_counts],
+            "met": all(count >= 4 for count in expected_counts),
+        },
+    ]
 
 
 def main():
@@ -113,6 +218,8 @@ def main():
                 question, top_k, threshold, corpus, args.variant
             )
             passed = judge(question, expects, answer, results) if judge else None
+            retrieved_has_answer = check_retrieved_contains_answer(expects, results)
+            answer_names_source = check_answer_names_source(answer, results)
             run_results.append(passed)
 
             mark = {True: "pass", False: "fail", None: "—"}[passed]
@@ -126,15 +233,32 @@ def main():
                     "sources": sorted({r.source for r in results}),
                     "best_distance": decision.best_distance,
                     "gate_passed": decision.passed,
+                    "retrieved_has_answer": retrieved_has_answer,
+                    "answer_names_source": answer_names_source,
                 }
             )
 
-        rows.append({"question": question, "expects": expects, "runs": run_results})
+        rows.append(
+            {
+                "question": question,
+                "expects": expects,
+                "runs": run_results,
+                "retrieved_runs": [
+                    entry["retrieved_has_answer"]
+                    for entry in transcript[-args.runs:]
+                ],
+                "source_runs": [
+                    entry["answer_names_source"]
+                    for entry in transcript[-args.runs:]
+                ],
+            }
+        )
 
     gate_rows = check_out_of_scope(top_k, threshold, corpus, args.variant)
+    chunk_check = check_chunk_boundaries(corpus)
 
     write_report(
-        rows, transcript, gate_rows, args, corpus, top_k, threshold,
+        rows, transcript, gate_rows, chunk_check, args, corpus, top_k, threshold,
         scored=judge is not None,
     )
 
@@ -176,7 +300,17 @@ def check_out_of_scope(top_k, threshold, corpus, variant):
     return rows
 
 
-def write_report(rows, transcript, gate_rows, args, corpus, top_k, threshold, scored):
+def write_report(
+    rows,
+    transcript,
+    gate_rows,
+    chunk_check,
+    args,
+    corpus,
+    top_k,
+    threshold,
+    scored,
+):
     config.RESULTS_DIR.mkdir(exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y-%m-%d_%H%M")
     label = f"_{args.label}" if args.label else ""
@@ -185,6 +319,8 @@ def write_report(rows, transcript, gate_rows, args, corpus, top_k, threshold, sc
     n = len(rows[0]["runs"]) if rows else 0
     run_headers = " | ".join(f"Run {i}" for i in range(1, n + 1))
     run_divider = "|".join(["---"] * n)
+
+    criteria_rows = summarize_runs(rows, gate_rows, chunk_check)
 
     lines = [
         f"# Run log{f' — {args.label}' if args.label else ''}",
@@ -196,9 +332,25 @@ def write_report(rows, transcript, gate_rows, args, corpus, top_k, threshold, sc
         f"- Runs per question: {n}, caching off",
         f"- When: {dt.datetime.now().strftime('%Y-%m-%d %H:%M')}",
         "",
-        "This table is one row per QUESTION. The run log your README asks for is",
-        "one row per CRITERION, so aggregate these into it — criterion 1 is how many",
-        "of your questions had the answer in the retrieved chunks, and so on.",
+        "## Criteria Summary",
+        "",
+        f"| Criterion | Target | {run_headers} | Verdict |",
+        f"|---|---|{run_divider}|---|",
+    ]
+
+    for row in criteria_rows:
+        verdict = "MET" if row["met"] else "MISSED"
+        lines.append(
+            f"| {row['criterion']} | {row['target']} | "
+            f"{' | '.join(row['runs'])} | {verdict} |"
+        )
+
+    lines += [
+        "",
+        "## Question-Level Scorer Output",
+        "",
+        "These columns use `scorer.py::judge`, which checks whether each answer",
+        "contains the expected phrase for the question.",
         "",
         f"| Question | {run_headers} |",
         f"|---|{run_divider}|",
@@ -241,6 +393,30 @@ def write_report(rows, transcript, gate_rows, args, corpus, top_k, threshold, sc
             question = row["question"].replace("|", "\\|")
             verdict = "refused" if row["refused"] else "**let through**"
             lines.append(f"| {question} | {row['best_distance']:.3f} | {verdict} |")
+
+    lines += [
+        "",
+        "---",
+        "",
+        "## Chunk boundary check",
+        "",
+        "Produced by `run_eval.py::check_chunk_boundaries` over every chunk from "
+        "`chunker.py::split_documents`.",
+        "",
+        f"Passed {chunk_check['passed']} of {chunk_check['total']} chunks.",
+    ]
+
+    if chunk_check["failures"]:
+        lines += ["", "| Chunk | Start | End |", "|---|---|---|"]
+        for failure in chunk_check["failures"][:10]:
+            label = failure["label"].replace("|", "\\|")
+            start = failure["start"].replace("|", "\\|")
+            end = failure["end"].replace("|", "\\|")
+            lines.append(f"| {label} | {start} | {end} |")
+        if len(chunk_check["failures"]) > 10:
+            lines.append(
+                f"| ... | {len(chunk_check['failures']) - 10} more failures | ... |"
+            )
 
     lines += ["", "---", "", "## Real output", "",
               "This is what the system actually produced. Paste the relevant parts",

@@ -206,6 +206,22 @@ I would make criterion 1 more precise by saying "the top three retrieved chunks 
 
 I would also make criterion 3 harder by changing the target to "the gate refuses at least 4 of 5 near-miss campus-life questions that are not actually covered by the corpus." The current out-of-scope questions are very clearly unrelated, so passing them does not prove the gate can handle near misses.
 
+## Post-Feedback Measurement Cleanup
+
+After grading, I tightened the evaluation tooling so the before/after comparison can be judged by the same instrument. `run_eval.py::summarize_runs` now writes a criteria-level summary into new run logs, `run_eval.py::check_chunk_boundaries` checks every chunk instead of five sampled chunks, and `score_log.py` can rescore an existing markdown log without making new model calls.
+
+Running `score_log.py` over the original baseline log produces:
+
+| Criterion | Target | Run 1 | Run 2 | Run 3 | Verdict |
+|---|---|---|---|---|---|
+| 1. Retrieved chunk contains the answer | 4 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 2. Every answer names a source | 5 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 3. Gate stops out-of-corpus questions | 4 of 5 | 5/5 | 5/5 | 5/5 | MET |
+| 4. Chunks do not cut off sentences | all chunks | 88/88 | 88/88 | 88/88 | MET |
+| 5. Answers include the expected phrase | 4 of 5 | 5/5 | 5/5 | 5/5 | MET |
+
+Running the same scorer over the after log produces the same criteria results. This does not change the system result, but it fixes the experimental weakness: both logs are now scored by the same code, and the chunk-boundary criterion is repeatable across the full corpus.
+
 ## How I Used AI in Unit 2
 
 I used Codex to inspect the repository, run the baseline and after evaluations, read the generated `results/` files, aggregate question-level evidence into criterion-level run logs, and compare before/after outcomes. Codex also helped trace the baseline retrieval outputs and choose the single top-k improvement. I reviewed the actual run logs instead of inventing results.
