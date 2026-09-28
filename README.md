@@ -162,13 +162,13 @@ For the chunk-boundary criterion, `python app.py chunks -n 5` sampled five chunk
 
 No baseline criterion was missed. The main pattern was that my criteria were safe for this corpus: each question points to a short, single-source post, and the correct document was usually ranked first.
 
-Even though nothing failed, I noticed one weakness in the baseline retrieval output: `TOP_K = 5` gave the model extra distractor chunks. For example, the baseline housing lottery answer retrieved the correct `admin_housing_lottery.txt`, but also included unrelated sources such as `dining_halden_hall_followup.txt`. The generated answer still stayed grounded, so this was not a miss, but the prompt carried more irrelevant context than it needed.
+Even though nothing failed, I noticed one retrieval-stage weakness in the baseline output. The mechanism was that `TOP_K = 5` gave the model extra distractor chunks after the correct chunk had already been retrieved. For example, the baseline housing lottery answer retrieved the correct `admin_housing_lottery.txt`, but also included unrelated sources such as `dining_halden_hall_followup.txt`. The generated answer still stayed grounded, so this was not a missed criterion, but the prompt carried more irrelevant context than it needed.
 
 ## The Improvement
 
 **What I changed:** I changed `TOP_K` in `config.py` from 5 to 3. I also added `scorer.py`, using the in-class helper shape `judge(question, expects, answer, results) -> bool`, so future eval logs mark expected-phrase checks automatically. The system behavior change was the retrieval setting.
 
-**Why I picked it:** The baseline did not have a failing criterion, so I chose the smallest improvement supported by the evidence: reduce irrelevant context while keeping the correct source in the retrieved set. In the baseline, every correct source was already ranked in the top 1, so lowering top-k from 5 to 3 should preserve correctness while sending fewer distractor chunks to the model.
+**Why I picked it:** The baseline did not have a failing criterion, so this improvement was not meant to fix a missed target. It was meant to address the diagnosed retrieval-stage weakness above: extra irrelevant context sent to the model after the answer source was already found. In the baseline, every correct source was already ranked in the top 1, so lowering top-k from 5 to 3 should preserve correctness while sending fewer distractor chunks to the model.
 
 ### Run Log - After
 
@@ -204,7 +204,7 @@ The next improvement I would try is a harder evaluation set, not another system 
 
 I would make criterion 1 more precise by saying "the top three retrieved chunks contain the answer for at least 4 of 5 questions." The original criterion said "retrieved chunks," but the number of chunks can change with `TOP_K`, so the measurement is easier to compare if the criterion names the retrieval depth.
 
-I would also make criterion 3 harder by including at least one out-of-scope question that sounds like campus life but is absent from the documents. The current out-of-scope questions are very clearly unrelated, so passing them does not prove the gate can handle near misses.
+I would also make criterion 3 harder by changing the target to "the gate refuses at least 4 of 5 near-miss campus-life questions that are not actually covered by the corpus." The current out-of-scope questions are very clearly unrelated, so passing them does not prove the gate can handle near misses.
 
 ## How I Used AI in Unit 2
 
